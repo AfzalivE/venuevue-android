@@ -1,10 +1,15 @@
 package com.afzaln.venuevue;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import android.accounts.Account;
+import android.accounts.AccountAuthenticatorActivity;
+import android.accounts.AccountManager;
+import android.accounts.AccountManagerFuture;
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.annotation.TargetApi;
-import android.app.Activity;
-import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.TextUtils;
@@ -12,11 +17,13 @@ import android.util.Log;
 import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.View;
+import android.view.View.OnClickListener;
 import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.afzaln.venuevue.authenticator.AccountGeneral;
 import com.android.volley.Request;
 import com.android.volley.Response.ErrorListener;
 import com.android.volley.Response.Listener;
@@ -26,21 +33,11 @@ import com.android.volley.VolleyError;
  * Activity which displays a login screen to the user, offering registration as
  * well.
  */
-public class LoginActivity extends Activity implements Listener<String>, ErrorListener{
-    /**
-     * A dummy authentication store containing known user names and passwords.
-     * TODO: remove after connecting to a real authentication system.
-     */
-    private static final String[] DUMMY_CREDENTIALS = new String[]{
-            "foo@example.com:hello",
-            "bar@example.com:world"
-    };
+public class LoginActivity extends AccountAuthenticatorActivity implements Listener<String>, ErrorListener{
 
-    /**
-     * The default email to populate the email field with.
-     */
-    public static final String EXTRA_EMAIL = "com.example.android.authenticatordemo.extra.EMAIL";
     private static final String TAG = LoginActivity.class.getSimpleName();
+    public static final String ARG_AUTH_TYPE = "authType";
+    public static final String ARG_IS_NEW_ACCOUNT = "isNewAccount";
 
     /**
      * Keep track of the login task to ensure we can cancel it if requested.
@@ -58,14 +55,17 @@ public class LoginActivity extends Activity implements Listener<String>, ErrorLi
     private View mLoginStatusView;
     private TextView mLoginStatusMessageView;
 
+    private AccountManager mAccountManager;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        mAccountManager = AccountManager.get(this);
+
         setContentView(R.layout.activity_login);
 
         // Set up the login form.
-        mUsername = getIntent().getStringExtra(EXTRA_EMAIL);
         mUsernameView = (EditText) findViewById(R.id.username);
         mUsernameView.setText(mUsername);
 
@@ -91,6 +91,33 @@ public class LoginActivity extends Activity implements Listener<String>, ErrorLi
                 attemptLogin();
             }
         });
+
+        findViewById(R.id.register_button).setOnClickListener(new OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                getAuthToken();
+            }
+        });
+    }
+
+    private void getAuthToken() {
+        Account availableAccounts[] = mAccountManager.getAccountsByType(AccountGeneral.ACCOUNT_TYPE);
+
+        final AccountManagerFuture<Bundle> future = mAccountManager.getAuthToken(availableAccounts[0], AccountGeneral.AUTHTOKEN_TYPE, null, this, null, null);
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    Bundle bnd = future.getResult();
+
+                    final String authtoken = bnd.getString(AccountManager.KEY_AUTHTOKEN);
+                    Log.d("AUTHTOKEN", "GetToken Bundle is " + bnd);
+                } catch (final Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }).start();
     }
 
 
@@ -153,8 +180,6 @@ public class LoginActivity extends Activity implements Listener<String>, ErrorLi
         }
     }
 
-
-
     /**
      * Shows the progress UI and hides the login form.
      */
@@ -199,61 +224,50 @@ public class LoginActivity extends Activity implements Listener<String>, ErrorLi
     public void onErrorResponse(VolleyError error) {
         mLoginRequest = null;
         showProgress(false);
-        Log.d(TAG, "error", error);
+        Log.d(TAG, "error: " + new String(error.networkResponse.data));
     }
 
     @Override
     public void onResponse(String response) {
         Toast.makeText(this, response, Toast.LENGTH_SHORT).show();
+        JSONObject resp = null;
+        String accountType = AccountGeneral.ACCOUNT_TYPE;
+        String authTokenType = AccountGeneral.AUTHTOKEN_TYPE;
+        String username = "";
+        String password = "";
+        String authToken = "";
+
+        try {
+            resp = new JSONObject(response);
+            username = resp.get("username").toString();
+            password = resp.get("password").toString();
+            authToken = resp.get("access_token").toString();
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+
+        final Account account =  new Account(username, accountType);
+
+        // if this is a new account
+        if (true) {
+            mAccountManager.addAccountExplicitly(account, password, null);
+            mAccountManager.setAuthToken(account, authTokenType, authToken);
+        } else {
+            mAccountManager.setPassword(account, password);
+        }
+
+        Bundle data = new Bundle();
+        data.putString(AccountManager.KEY_ACCOUNT_NAME, username);
+        data.putString(AccountManager.KEY_ACCOUNT_TYPE, accountType);
+        data.putString(AccountManager.KEY_AUTHTOKEN, authToken);
+        data.putString(AccountManager.KEY_PASSWORD, password);
+
+        setAccountAuthenticatorResult(data);
+
+
         mLoginRequest = null;
         showProgress(false);
-    }
 
-    /**
-     * Represents an asynchronous login/registration task used to authenticate
-     * the user.
-     */
-    public class UserLoginTask extends AsyncTask<Void, Void, Boolean> {
-        @Override
-        protected Boolean doInBackground(Void... params) {
-            // TODO: attempt authentication against a network service.
 
-            try {
-                // Simulate network access.
-                Thread.sleep(2000);
-            } catch (InterruptedException e) {
-                return false;
-            }
-
-            for (String credential : DUMMY_CREDENTIALS) {
-                String[] pieces = credential.split(":");
-                if (pieces[0].equals(mUsername)) {
-                    // Account exists, return true if the password matches.
-                    return pieces[1].equals(mPassword);
-                }
-            }
-
-            // TODO: register the new account here.
-            return true;
-        }
-
-        @Override
-        protected void onPostExecute(final Boolean success) {
-            mLoginRequest = null;
-            showProgress(false);
-
-            if (success) {
-                finish();
-            } else {
-                mPasswordView.setError(getString(R.string.error_incorrect_password));
-                mPasswordView.requestFocus();
-            }
-        }
-
-        @Override
-        protected void onCancelled() {
-            mLoginRequest = null;
-            showProgress(false);
-        }
     }
 }

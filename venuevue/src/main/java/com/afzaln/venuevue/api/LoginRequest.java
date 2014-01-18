@@ -1,9 +1,10 @@
 package com.afzaln.venuevue.api;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import java.util.HashMap;
 import java.util.Map;
-
-import android.util.Log;
 
 import com.android.volley.NetworkResponse;
 import com.android.volley.Request;
@@ -44,8 +45,16 @@ public class LoginRequest extends Request<String> {
     @Override
     protected Response<String> parseNetworkResponse(NetworkResponse response) {
         String jsonString = new String(response.data);
-        Log.d(TAG, jsonString);
-        // TODO parse auth token and return it
+
+        try {
+            JSONObject resp = new JSONObject(jsonString);
+            resp.put("username", mParams.get("username"));
+            resp.put("password", mParams.get("password"));
+            jsonString = resp.toString();
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+
         return Response.success(jsonString, getCacheEntry());
     }
 
